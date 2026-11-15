@@ -9,10 +9,12 @@ from bokeh.models import (
     ColumnDataSource,
     HoverTool,
     ColorBar,
-    LinearColorMapper
+    LinearColorMapper,
+    FactorRange
 )
-from bokeh.palettes import RdBu11, Category10
-from bokeh.transform import linear_cmap, dodge
+from bokeh.palettes import RdBu11
+from bokeh.transform import dodge
+
 
 # =====================================================
 # 1. PAGE CONFIGURATION
@@ -26,14 +28,14 @@ st.set_page_config(
 
 BASE_DIR = Path(__file__).parent
 
-# Keep original dataset names
+# Original dataset filenames - DO NOT CHANGE
 BIRTH_FILE = BASE_DIR / "birth_state (1).csv"
 MARRIAGE_FILE = BASE_DIR / "marriages_state.csv"
 INCOME_FILE = BASE_DIR / "hh_income_state.csv"
 
 
 # =====================================================
-# 2. LOAD DATA
+# 2. LOAD DATASETS
 # =====================================================
 
 @st.cache_data
@@ -43,11 +45,31 @@ def load_data():
     marriages = pd.read_csv(MARRIAGE_FILE)
     income = pd.read_csv(INCOME_FILE)
 
+    # Check required columns
+    required_birth = {"state", "date", "abs", "rate"}
+    required_marriage = {"state", "date", "sex", "abs", "rate"}
+    required_income = {
+        "state", "date", "income_mean", "income_median"
+    }
+
+    if not required_birth.issubset(births.columns):
+        raise ValueError("Birth dataset is missing required columns.")
+
+    if not required_marriage.issubset(marriages.columns):
+        raise ValueError("Marriage dataset is missing required columns.")
+
+    if not required_income.issubset(income.columns):
+        raise ValueError("Income dataset is missing required columns.")
+
+    # Convert date and year
     for df in [births, marriages, income]:
-        df["date"] = pd.to_datetime(df["date"])
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
         df["year"] = df["date"].dt.year
 
-    # Birth data
+    # -------------------------------------------------
+    # BIRTH DATA
+    # -------------------------------------------------
+
     births = births.rename(columns={
         "abs": "birth_abs",
         "rate": "birth_rate"
@@ -56,23 +78,40 @@ def load_data():
     births["birth_abs"] = pd.to_numeric(
         births["birth_abs"], errors="coerce"
     )
+
     births["birth_rate"] = pd.to_numeric(
         births["birth_rate"], errors="coerce"
     )
 
-    # Marriage data
+    births = births.dropna(
+        subset=["state", "year"]
+    )
+
+    # -------------------------------------------------
+    # MARRIAGE DATA
+    # -------------------------------------------------
+
     marriages["sex"] = (
-        marriages["sex"].astype(str).str.lower().str.strip()
+        marriages["sex"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
     )
 
     marriages["abs"] = pd.to_numeric(
         marriages["abs"], errors="coerce"
     )
+
     marriages["rate"] = pd.to_numeric(
         marriages["rate"], errors="coerce"
     )
 
-    # Average female and male records
+    marriages = marriages.dropna(
+        subset=["state", "year"]
+    )
+
+    # User selected average for marriage dataset.
+    # Average male and female records for each state/year.
     marriages = (
         marriages
         .groupby(["state", "year"], as_index=False)
@@ -82,16 +121,29 @@ def load_data():
         )
     )
 
-    # Income data
+    # -------------------------------------------------
+    # HOUSEHOLD INCOME DATA
+    # -------------------------------------------------
+
     income["income_mean"] = pd.to_numeric(
         income["income_mean"], errors="coerce"
     )
+
     income["income_median"] = pd.to_numeric(
         income["income_median"], errors="coerce"
     )
 
+    income = income.dropna(
+        subset=["state", "year"]
+    )
+
+    # Select required columns
     births = births[
         ["state", "year", "birth_abs", "birth_rate"]
+    ]
+
+    marriages = marriages[
+        ["state", "year", "marriage_abs", "marriage_rate"]
     ]
 
     income = income[
@@ -101,45 +153,60 @@ def load_data():
     return births, marriages, income
 
 
+# =====================================================
+# 3. LOAD DATA WITH ERROR HANDLING
+# =====================================================
+
 try:
+
     births, marriages, income = load_data()
 
 except Exception as e:
+
     st.error(f"Dataset loading error: {e}")
+
+    st.info(
+        "Please ensure that all three CSV files are "
+        "uploaded in the same folder as main.py."
+    )
+
     st.stop()
 
 
 # =====================================================
-# 3. MERGE DATASETS
+# 4. MERGE DATASETS
 # =====================================================
 
 birth_income = pd.merge(
-    births, income,
+    births,
+    income,
     on=["state", "year"],
     how="inner"
 )
 
 birth_marriage = pd.merge(
-    births, marriages,
+    births,
+    marriages,
     on=["state", "year"],
     how="inner"
 )
 
 marriage_income = pd.merge(
-    marriages, income,
+    marriages,
+    income,
     on=["state", "year"],
     how="inner"
 )
 
 
 # =====================================================
-# 4. SIDEBAR FILTERS
+# 5. SIDEBAR NAVIGATION
 # =====================================================
 
-st.sidebar.title("📊 Dashboard Navigation")
+st.sidebar.title("📊 Malaysia Dashboard")
 
 page = st.sidebar.radio(
-    "Select Page",
+    "Navigation",
     [
         "Home",
         "Economic Prosperity vs. Demographic Growth",
@@ -150,50 +217,55 @@ page = st.sidebar.radio(
 
 st.sidebar.divider()
 
-st.sidebar.subheader("🔎 Data Filters")
+st.sidebar.subheader("🔎 Dashboard Filters")
 
 all_states = sorted(
-    set(births["state"].dropna())
-    | set(marriages["state"].dropna())
-    | set(income["state"].dropna())
+    set(births["state"].dropna().unique())
+    | set(marriages["state"].dropna().unique())
+    | set(income["state"].dropna().unique())
 )
 
 selected_states = st.sidebar.multiselect(
-    "Select States",
+    "Select State",
     options=all_states,
     default=all_states
 )
 
-min_year = max(
-    2000,
-    int(min(
-        births["year"].min(),
-        marriages["year"].min(),
-        income["year"].min()
-    ))
+# Filter year range based on available analytical data
+available_years = sorted(
+    set(birth_income["year"].dropna().astype(int))
+    | set(birth_marriage["year"].dropna().astype(int))
+    | set(marriage_income["year"].dropna().astype(int))
 )
 
-max_year = int(max(
-    births["year"].max(),
-    marriages["year"].max(),
-    income["year"].max()
-))
+if not available_years:
+    st.error("No matching years found in the datasets.")
+    st.stop()
 
-selected_years = st.sidebar.slider(
-    "Select Year Range",
-    min_value=min_year,
-    max_value=max_year,
-    value=(min_year, max_year),
-    step=1
-)
+min_year = min(available_years)
+max_year = max(available_years)
+
+if min_year == max_year:
+    selected_years = (min_year, max_year)
+    st.sidebar.write(f"Year: {min_year}")
+else:
+    selected_years = st.sidebar.slider(
+        "Select Year Range",
+        min_value=min_year,
+        max_value=max_year,
+        value=(min_year, max_year),
+        step=1
+    )
+
+st.sidebar.divider()
 
 st.sidebar.caption(
-    "Source: Department of Statistics Malaysia (DOSM)"
+    "Data Source: Department of Statistics Malaysia (DOSM)"
 )
 
 
 # =====================================================
-# 5. FILTER FUNCTION
+# 6. FILTER FUNCTION
 # =====================================================
 
 def apply_filters(df):
@@ -211,13 +283,9 @@ bi = apply_filters(birth_income)
 bm = apply_filters(birth_marriage)
 mi = apply_filters(marriage_income)
 
-birth_filtered = apply_filters(births)
-marriage_filtered = apply_filters(marriages)
-income_filtered = apply_filters(income)
-
 
 # =====================================================
-# 6. BOKEH CHART SETTINGS
+# 7. HELPER FUNCTIONS
 # =====================================================
 
 def chart_style(title, x_label, y_label):
@@ -247,16 +315,7 @@ def show_chart(p):
     )
 
 
-def show_summary(data, columns):
-
-    cols = st.columns(len(columns))
-
-    for col, (label, value) in zip(cols, columns):
-
-        col.metric(label, value)
-
-
-def correlation_heatmap(data, columns, title):
+def show_correlation_heatmap(data, columns, title):
 
     corr = data[columns].corr()
 
@@ -265,7 +324,9 @@ def correlation_heatmap(data, columns, title):
     values = []
 
     for row in columns:
+
         for col in columns:
+
             x_values.append(col)
             y_values.append(row)
             values.append(corr.loc[row, col])
@@ -288,7 +349,7 @@ def correlation_heatmap(data, columns, title):
         y_range=list(reversed(columns)),
         height=420,
         sizing_mode="stretch_width",
-        toolbar_location=None
+        toolbar_location="above"
     )
 
     p.rect(
@@ -310,7 +371,8 @@ def correlation_heatmap(data, columns, title):
         text="value",
         source=source,
         text_align="center",
-        text_baseline="middle"
+        text_baseline="middle",
+        text_color="black"
     )
 
     p.add_layout(
@@ -323,12 +385,102 @@ def correlation_heatmap(data, columns, title):
     return p
 
 
+def empty_data_message(data):
+
+    if data.empty:
+
+        st.warning(
+            "No data available for the selected filters. "
+            "Please select another state or year range."
+        )
+
+        st.stop()
+
+
+# =====================================================
+# 8. HOME PAGE
+# =====================================================
+
+if page == "Home":
+
+    st.title(
+        "Malaysia Socioeconomic & Demographic Dashboard"
+    )
+
+    st.markdown(
+        """
+        ### Interactive Scientific Visualization
+
+        This dashboard explores the relationship between
+        household income, marriage patterns and live births
+        across Malaysian states.
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Dataset Overview")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Live Birth Records",
+        f"{len(births):,}"
+    )
+
+    col2.metric(
+        "Marriage Records",
+        f"{len(marriages):,}"
+    )
+
+    col3.metric(
+        "Household Income Records",
+        f"{len(income):,}"
+    )
+
+    st.divider()
+
+    st.subheader("Visualization Objectives")
+
+    st.markdown(
+        """
+        **Objective 1: Economic Prosperity vs. Demographic Growth**
+
+        To examine the relationship between household income
+        and live births across Malaysian states, identifying
+        possible socioeconomic patterns in demographic growth.
+
+        ---
+
+        **Objective 2: Family Formation and Population Dynamics**
+
+        To analyze the relationship between marriage patterns
+        and live births across Malaysian states over time,
+        identifying demographic trends and regional differences.
+
+        ---
+
+        **Objective 3: Socioeconomic Influence on Marriages**
+
+        To investigate the relationship between household
+        income levels and marriage patterns across Malaysian
+        states, examining possible socioeconomic associations.
+        """
+    )
+
+    st.info(
+        "Use the sidebar navigation to explore the three "
+        "visualization pages. You can filter the dashboard "
+        "by state and year."
+    )
+
+
 # =====================================================
 # PAGE 1
 # ECONOMIC PROSPERITY VS DEMOGRAPHIC GROWTH
 # =====================================================
 
-if page == "Economic Prosperity vs. Demographic Growth":
+elif page == "Economic Prosperity vs. Demographic Growth":
 
     st.title(
         "Economic Prosperity vs. Demographic Growth"
@@ -351,12 +503,13 @@ if page == "Economic Prosperity vs. Demographic Growth":
         f"Selected period: {selected_years[0]}–{selected_years[1]}"
     )
 
-    if bi.empty:
-        st.warning("No matching income and birth records.")
-        st.stop()
+    empty_data_message(bi)
 
-    # Summary
-    state_summary = (
+    # -----------------------------------------------
+    # SUMMARY BOXES
+    # -----------------------------------------------
+
+    summary = (
         bi.groupby("state", as_index=False)
         .agg(
             births=("birth_abs", "sum"),
@@ -382,32 +535,44 @@ if page == "Economic Prosperity vs. Demographic Growth":
 
     c3.metric(
         "Highest Income State",
-        state_summary.loc[
-            state_summary["income"].idxmax(), "state"
+        summary.loc[
+            summary["income"].idxmax(), "state"
         ]
     )
 
     c4.metric(
         "Highest Birth State",
-        state_summary.loc[
-            state_summary["births"].idxmax(), "state"
+        summary.loc[
+            summary["births"].idxmax(), "state"
         ]
+    )
+
+    st.caption(
+        "Income is the unweighted average of available "
+        "state-year median income records."
     )
 
     st.divider()
 
-    # Chart 1: Scatter
+    # -----------------------------------------------
+    # VISUALIZATION 1: SCATTER PLOT
+    # -----------------------------------------------
+
     st.subheader(
-        "1. Scatter Plot: Household Income vs Live Births"
+        "1. Scatter Plot: Household Income vs. Live Births"
+    )
+
+    scatter_data = summary.dropna(
+        subset=["income", "births"]
     )
 
     p = chart_style(
-        "Income and Live Births",
-        "Median Household Income (RM)",
+        "Household Income and Live Births",
+        "Average Median Household Income (RM)",
         "Total Live Births"
     )
 
-    source = ColumnDataSource(state_summary)
+    source = ColumnDataSource(scatter_data)
 
     p.scatter(
         x="income",
@@ -430,34 +595,50 @@ if page == "Economic Prosperity vs. Demographic Growth":
 
     show_chart(p)
 
-    st.write(
-        "Interpretation: This scatter plot examines the "
-        "relationship between average median household income "
-        "and total live births across selected states. "
-        "The distribution helps identify possible positive "
-        "or negative associations."
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The scatter plot examines the relationship between
+        average median household income and total live births
+        across selected states. The position of each point
+        helps identify possible positive or negative
+        associations between economic conditions and
+        demographic distribution.
+        """
     )
 
-    # Chart 2: Bar
+    # -----------------------------------------------
+    # VISUALIZATION 2: BAR CHART
+    # -----------------------------------------------
+
     st.subheader(
-        "2. Bar Chart: Median Household Income by State"
+        "2. Bar Chart: Household Income by State"
     )
 
-    chart_data = state_summary.sort_values(
+    chart_data = summary.dropna(
+        subset=["income"]
+    ).sort_values(
         "income", ascending=False
     )
 
     p = chart_style(
         "Average Median Household Income by State",
         "State",
-        "Median Income (RM)"
+        "Median Household Income (RM)"
     )
+
+    p.x_range = FactorRange(
+        *chart_data["state"].tolist()
+    )
+
+    source = ColumnDataSource(chart_data)
 
     p.vbar(
         x="state",
         top="income",
         width=0.65,
-        source=ColumnDataSource(chart_data),
+        source=source,
         color="#329D83"
     )
 
@@ -472,13 +653,22 @@ if page == "Economic Prosperity vs. Demographic Growth":
 
     show_chart(p)
 
-    st.write(
-        "Interpretation: The bar chart compares average "
-        "median household income among selected states "
-        "during the chosen period."
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The bar chart compares average median household
+        income among Malaysian states. Differences in bar
+        heights highlight regional economic disparities
+        and identify states with relatively higher or
+        lower household income.
+        """
     )
 
-    # Chart 3: Heatmap
+    # -----------------------------------------------
+    # VISUALIZATION 3: CORRELATION HEATMAP
+    # -----------------------------------------------
+
     st.subheader(
         "3. Correlation Heatmap: Income and Birth Indicators"
     )
@@ -495,7 +685,7 @@ if page == "Economic Prosperity vs. Demographic Growth":
     if len(corr_data) >= 2:
 
         show_chart(
-            correlation_heatmap(
+            show_correlation_heatmap(
                 corr_data,
                 [
                     "income_mean",
@@ -503,15 +693,26 @@ if page == "Economic Prosperity vs. Demographic Growth":
                     "birth_abs",
                     "birth_rate"
                 ],
-                "Income and Birth Correlation"
+                "Income and Birth Correlation Matrix"
             )
         )
 
-        st.write(
-            "Interpretation: The heatmap displays Pearson "
-            "correlation coefficients between income and "
-            "birth indicators. Values closer to 1 or -1 "
-            "indicate stronger linear associations."
+        st.markdown(
+            """
+            **Interpretation:**
+
+            The heatmap displays Pearson correlation
+            coefficients between household income and
+            birth indicators. Positive values represent
+            positive linear associations, while negative
+            values indicate inverse associations.
+            """
+        )
+
+    else:
+
+        st.warning(
+            "Insufficient complete records for correlation analysis."
         )
 
 
@@ -540,12 +741,17 @@ elif page == "Family Formation and Population Dynamics":
         "regional differences."
     )
 
-    if bm.empty:
-        st.warning("No matching marriage and birth records.")
-        st.stop()
+    st.caption(
+        f"Selected period: {selected_years[0]}–{selected_years[1]}"
+    )
 
-    # Summary
-    state_summary = (
+    empty_data_message(bm)
+
+    # -----------------------------------------------
+    # SUMMARY BOXES
+    # -----------------------------------------------
+
+    summary = (
         bm.groupby("state", as_index=False)
         .agg(
             births=("birth_abs", "sum"),
@@ -567,28 +773,32 @@ elif page == "Family Formation and Population Dynamics":
 
     c3.metric(
         "Highest Marriage State",
-        state_summary.loc[
-            state_summary["marriages"].idxmax(), "state"
+        summary.loc[
+            summary["marriages"].idxmax(), "state"
         ]
     )
 
     c4.metric(
         "Highest Birth State",
-        state_summary.loc[
-            state_summary["births"].idxmax(), "state"
+        summary.loc[
+            summary["births"].idxmax(), "state"
         ]
     )
 
     st.caption(
-        "Marriage values are the average of female and male "
-        "records, not their combined sum."
+        "Marriage values are averages of female and male "
+        "records for each state and year. They are not "
+        "the sum of both records."
     )
 
     st.divider()
 
-    # Chart 1: Time series
+    # -----------------------------------------------
+    # VISUALIZATION 1: LINE CHART
+    # -----------------------------------------------
+
     st.subheader(
-        "1. Time-Series Line Chart: Marriages vs Live Births"
+        "1. Time-Series Line Chart: Marriages vs. Live Births"
     )
 
     yearly = (
@@ -614,6 +824,14 @@ elif page == "Family Formation and Population Dynamics":
         legend_label="Live Births"
     )
 
+    p.scatter(
+        x="year",
+        y="births",
+        source=ColumnDataSource(yearly),
+        color="#2878B5",
+        size=7
+    )
+
     p.line(
         x="year",
         y="marriages",
@@ -621,6 +839,14 @@ elif page == "Family Formation and Population Dynamics":
         color="#E07A3F",
         line_width=3,
         legend_label="Estimated Marriages"
+    )
+
+    p.scatter(
+        x="year",
+        y="marriages",
+        source=ColumnDataSource(yearly),
+        color="#E07A3F",
+        size=7
     )
 
     p.legend.location = "top_left"
@@ -637,14 +863,21 @@ elif page == "Family Formation and Population Dynamics":
 
     show_chart(p)
 
-    st.write(
-        "Interpretation: The line chart tracks changes in "
-        "marriages and live births over the selected years. "
-        "It helps identify similar movements and differences "
-        "in demographic trends."
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The line chart tracks annual changes in estimated
+        marriages and live births. It helps identify
+        increasing or decreasing trends and compare
+        demographic patterns over the selected period.
+        """
     )
 
-    # Chart 2: Heatmap
+    # -----------------------------------------------
+    # VISUALIZATION 2: CORRELATION HEATMAP
+    # -----------------------------------------------
+
     st.subheader(
         "2. Correlation Heatmap: Marriage and Birth Indicators"
     )
@@ -661,7 +894,7 @@ elif page == "Family Formation and Population Dynamics":
     if len(corr_data) >= 2:
 
         show_chart(
-            correlation_heatmap(
+            show_correlation_heatmap(
                 corr_data,
                 [
                     "marriage_abs",
@@ -669,36 +902,57 @@ elif page == "Family Formation and Population Dynamics":
                     "birth_abs",
                     "birth_rate"
                 ],
-                "Marriage and Birth Correlation"
+                "Marriage and Birth Correlation Matrix"
             )
         )
 
-        st.write(
-            "Interpretation: The heatmap shows the strength "
-            "and direction of linear associations between "
-            "marriage and birth indicators."
+        st.markdown(
+            """
+            **Interpretation:**
+
+            The heatmap illustrates the strength and
+            direction of linear associations between
+            marriage and birth indicators. Stronger
+            positive or negative values indicate
+            stronger linear relationships.
+            """
         )
 
-    # Chart 3: Grouped bar
+    else:
+
+        st.warning(
+            "Insufficient complete records for correlation analysis."
+        )
+
+    # -----------------------------------------------
+    # VISUALIZATION 3: GROUPED BAR CHART
+    # -----------------------------------------------
+
     st.subheader(
-        "3. Grouped Bar Chart: Marriages vs Live Births"
+        "3. Grouped Bar Chart: Marriages vs. Live Births"
     )
 
+    chart_data = summary.dropna(
+        subset=["births", "marriages"]
+    )
+
+    states = chart_data["state"].tolist()
+
     p = chart_style(
-        "Marriage and Birth Comparison by State",
+        "Marriage and Live Birth Comparison by State",
         "State",
         "Number of Records"
     )
 
-    states = state_summary["state"].tolist()
-    x = np.arange(len(states))
-    width = 0.36
+    p.x_range = FactorRange(*states)
+
+    source = ColumnDataSource(chart_data)
 
     p.vbar(
         x=dodge("state", -0.2, range=p.x_range),
         top="marriages",
-        width=width,
-        source=ColumnDataSource(state_summary),
+        width=0.36,
+        source=source,
         color="#E07A3F",
         legend_label="Estimated Marriages"
     )
@@ -706,21 +960,35 @@ elif page == "Family Formation and Population Dynamics":
     p.vbar(
         x=dodge("state", 0.2, range=p.x_range),
         top="births",
-        width=width,
-        source=ColumnDataSource(state_summary),
+        width=0.36,
+        source=source,
         color="#2878B5",
         legend_label="Live Births"
     )
 
-    p.x_range.factors = states
     p.legend.location = "top_left"
+
+    p.add_tools(
+        HoverTool(
+            tooltips=[
+                ("State", "@state"),
+                ("Marriages", "@marriages{0,0}"),
+                ("Births", "@births{0,0}")
+            ]
+        )
+    )
 
     show_chart(p)
 
-    st.write(
-        "Interpretation: This grouped bar chart compares "
-        "estimated marriage and live birth volumes across "
-        "selected states during the chosen period."
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The grouped bar chart compares estimated marriage
+        and live birth volumes across selected states.
+        It highlights regional differences in family
+        formation and demographic activity.
+        """
     )
 
 
@@ -748,15 +1016,21 @@ elif page == "Socioeconomic Influence on Marriages":
         "states, examining possible socioeconomic associations."
     )
 
-    if mi.empty:
-        st.warning("No matching marriage and income records.")
-        st.stop()
+    st.caption(
+        f"Selected period: {selected_years[0]}–{selected_years[1]}"
+    )
 
-    # Summary
-    state_summary = (
+    empty_data_message(mi)
+
+    # -----------------------------------------------
+    # SUMMARY BOXES
+    # -----------------------------------------------
+
+    summary = (
         mi.groupby("state", as_index=False)
         .agg(
             income=("income_median", "mean"),
+            mean_income=("income_mean", "mean"),
             marriages=("marriage_abs", "sum"),
             marriage_rate=("marriage_rate", "mean")
         )
@@ -776,66 +1050,98 @@ elif page == "Socioeconomic Influence on Marriages":
 
     c3.metric(
         "Highest Marriage State",
-        state_summary.loc[
-            state_summary["marriages"].idxmax(), "state"
+        summary.loc[
+            summary["marriages"].idxmax(), "state"
         ]
     )
 
     c4.metric(
         "Lowest Income State",
-        state_summary.loc[
-            state_summary["income"].idxmin(), "state"
+        summary.loc[
+            summary["income"].idxmin(), "state"
         ]
     )
 
     st.divider()
 
-    # Chart 1: Bubble chart
+    # -----------------------------------------------
+    # VISUALIZATION 1: BUBBLE CHART
+    # -----------------------------------------------
+
     st.subheader(
-        "1. Bubble Chart: Household Income vs Marriages"
+        "1. Bubble Chart: Household Income vs. Marriages"
     )
 
-    p = chart_style(
-        "Income and Marriage Relationship",
-        "Average Median Income (RM)",
-        "Average Marriage Rate"
-    )
+    bubble_data = summary.dropna(
+        subset=["income", "marriage_rate", "marriages"]
+    ).copy()
 
-    p.scatter(
-        x="income",
-        y="marriage_rate",
-        size=20,
-        source=ColumnDataSource(state_summary),
-        color="#329D83",
-        alpha=0.65
-    )
+    if not bubble_data.empty:
 
-    p.add_tools(
-        HoverTool(
-            tooltips=[
-                ("State", "@state"),
-                ("Income", "RM @income{0,0.00}"),
-                ("Marriage Rate", "@marriage_rate{0.00}"),
-                ("Marriage Volume", "@marriages{0,0}")
-            ]
+        max_marriages = bubble_data["marriages"].max()
+
+        if max_marriages > 0:
+
+            bubble_data["bubble_size"] = (
+                10 + 30 * bubble_data["marriages"]
+                / max_marriages
+            )
+
+        else:
+
+            bubble_data["bubble_size"] = 10
+
+        p = chart_style(
+            "Household Income and Marriage Patterns",
+            "Average Median Household Income (RM)",
+            "Average Marriage Rate"
         )
+
+        source = ColumnDataSource(bubble_data)
+
+        p.scatter(
+            x="income",
+            y="marriage_rate",
+            size="bubble_size",
+            source=source,
+            color="#329D83",
+            alpha=0.65
+        )
+
+        p.add_tools(
+            HoverTool(
+                tooltips=[
+                    ("State", "@state"),
+                    ("Income", "RM @income{0,0.00}"),
+                    ("Marriage Rate", "@marriage_rate{0.00}"),
+                    ("Marriage Volume", "@marriages{0,0}")
+                ]
+            )
+        )
+
+        show_chart(p)
+
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The bubble chart examines the relationship between
+        household income and marriage rates across states.
+        Bubble size represents estimated marriage volume,
+        allowing comparison of income, marriage rates
+        and marriage volume simultaneously.
+        """
     )
 
-    show_chart(p)
+    # -----------------------------------------------
+    # VISUALIZATION 2: BOX PLOT
+    # -----------------------------------------------
 
-    st.write(
-        "Interpretation: The bubble chart examines the "
-        "relationship between household income and marriage "
-        "rates. Each bubble represents a state, while the "
-        "hover information displays estimated marriage volume."
-    )
-
-    # Chart 2: Box plot
     st.subheader(
         "2. Box Plot: Income Distribution by Marriage Volume"
     )
 
-    box_data = state_summary.dropna(
+    box_data = summary.dropna(
         subset=["income", "marriages"]
     ).copy()
 
@@ -855,6 +1161,8 @@ elif page == "Socioeconomic Influence on Marriages":
             "Median Household Income (RM)"
         )
 
+        p.x_range = FactorRange(*tiers)
+
         for tier in tiers:
 
             values = box_data.loc[
@@ -872,6 +1180,7 @@ elif page == "Socioeconomic Influence on Marriages":
             lower = values.min()
             upper = values.max()
 
+            # Interquartile range
             p.vbar(
                 x=tier,
                 width=0.5,
@@ -881,6 +1190,7 @@ elif page == "Socioeconomic Influence on Marriages":
                 line_color="black"
             )
 
+            # Lower and upper whiskers
             p.segment(
                 x0=tier,
                 y0=lower,
@@ -897,53 +1207,81 @@ elif page == "Socioeconomic Influence on Marriages":
                 line_color="black"
             )
 
+            # Median line
             p.segment(
-                x0=tier,
-                y0=median,
-                x1=tier,
-                y1=median,
+                x0=dodge("tier", -0.25, range=p.x_range),
+                y0="median",
+                x1=dodge("tier", 0.25, range=p.x_range),
+                y1="median",
+                source=ColumnDataSource({
+                    "tier": [tier],
+                    "median": [median]
+                }),
                 line_color="black",
                 line_width=3
             )
 
+            # Individual income points
             p.scatter(
                 x=[tier] * len(values),
                 y=values,
-                size=6,
+                size=7,
                 color="#2878B5",
-                alpha=0.5
+                alpha=0.6
             )
 
         show_chart(p)
 
-        st.write(
-            "Interpretation: The box plot compares household "
-            "income distributions among low, medium and high "
-            "marriage-volume groups. It highlights the median, "
-            "spread and differences in income across groups."
+        st.markdown(
+            """
+            **Interpretation:**
+
+            The box plot compares median household income
+            distributions among states grouped into low,
+            medium and high marriage-volume tiers. It
+            highlights differences in median income,
+            variation and possible extreme observations.
+            """
         )
 
-    # Chart 3: Marriage rate
+    else:
+
+        st.warning(
+            "At least three states are needed for the box plot."
+        )
+
+    # -----------------------------------------------
+    # VISUALIZATION 3: BAR CHART
+    # -----------------------------------------------
+
     st.subheader(
         "3. Bar Chart: Marriage Rate by State"
     )
 
-    chart_data = state_summary.sort_values(
+    chart_data = summary.dropna(
+        subset=["marriage_rate"]
+    ).sort_values(
         "marriage_rate",
         ascending=False
     )
 
     p = chart_style(
-        "Marriage Rate Distribution by State",
+        "Average Marriage Rate by State",
         "State",
         "Average Marriage Rate"
     )
+
+    p.x_range = FactorRange(
+        *chart_data["state"].tolist()
+    )
+
+    source = ColumnDataSource(chart_data)
 
     p.vbar(
         x="state",
         top="marriage_rate",
         width=0.65,
-        source=ColumnDataSource(chart_data),
+        source=source,
         color="#2878B5"
     )
 
@@ -958,15 +1296,20 @@ elif page == "Socioeconomic Influence on Marriages":
 
     show_chart(p)
 
-    st.write(
-        "Interpretation: This bar chart compares average "
-        "marriage rates among selected states during the "
-        "selected period."
+    st.markdown(
+        """
+        **Interpretation:**
+
+        The bar chart compares average marriage rates
+        across Malaysian states. It identifies states
+        with relatively higher and lower marriage rates
+        during the selected period.
+        """
     )
 
 
 # =====================================================
-# FOOTER
+# 9. FOOTER
 # =====================================================
 
 st.divider()
