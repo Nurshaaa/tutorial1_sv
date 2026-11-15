@@ -2,6 +2,4 @@
 streamlit
 pandas
 numpy
-bokeh
-pyarrow
-
+bokeh>=3.4,<4
