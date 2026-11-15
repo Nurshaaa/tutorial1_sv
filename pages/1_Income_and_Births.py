@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from bokeh.plotting import figure
-from bokeh.models import ColumnDataSource
 
 st.set_page_config(page_title="Page 1: Income + Births", page_icon="📊", layout="wide")
 
@@ -46,23 +44,23 @@ def load_data():
 try:
     births_df, income_df = load_data()
     num_income = income_df.select_dtypes(include='number')
+    num_births = births_df.select_dtypes(include='number')
 
     st.markdown("### 📈 Scientific Visualizations (3 Teknik Berbeza)")
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        st.subheader("1. Bokeh Interactive Chart")
-        sample_data = pd.DataFrame({'Kategori': ['Wilayah A', 'Wilayah B', 'Wilayah C', 'Wilayah D'], 'Nilai': [45, 60, 75, 50]})
-        source = ColumnDataSource(sample_data)
-        p = figure(x_range=sample_data['Kategori'], height=300, width=300, title="Analisis Interaktif Bokeh", tools="pan,wheel_zoom,reset")
-        p.vbar(x='Kategori', top='Nilai', width=0.5, source=source, color="navy")
-        st.bokeh_chart(p, use_container_width=True)
-        st.caption("Carta bar interaktif menggunakan Bokeh.")
+        st.subheader("1. Bar Chart (Trend)")
+        fig, ax = plt.subplots(figsize=(4, 3.2))
+        num_births.iloc[:10, 0].plot(kind='bar', ax=ax, color="#1f77b4")
+        ax.set_title("Live Births by State")
+        st.pyplot(fig)
+        st.caption("Taburan bar kelahiran hidup.")
 
     with c2:
         st.subheader("2. Scatter Plot (Taburan)")
         fig, ax = plt.subplots(figsize=(4, 3.2))
-        sns.scatterplot(data=num_income.iloc[:15], x=num_income.columns[0], y=num_income.columns[-1], ax=ax, color="#1f77b4", s=70)
+        sns.scatterplot(data=num_income.iloc[:15], x=num_income.columns[0], y=num_income.columns[-1], ax=ax, color="#ff7f0e", s=70)
         ax.set_title("Income Distribution")
         st.pyplot(fig)
         st.caption("Taburan korelasi ekonomi isi rumah.")
