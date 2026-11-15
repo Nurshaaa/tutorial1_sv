@@ -1,24 +1,22 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Malaysia Socioeconomic & Demographic Analysis",
+    page_title="Scientific Visualization Dashboard",
     page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 Scientific Visualization Report: Malaysia")
-st.subheader("Socioeconomic and Demographic Multi-Page Analysis")
+st.title("📊 Scientific Visualization: Socioeconomic & Demographic Dashboard")
+st.markdown("---")
 
 st.markdown("""
-Selamat datang ke aplikasi laporan visualisasi saintifik interaktif. Aplikasi ini dibangunkan untuk memenuhi keperluan tugasan analisis perbandingan merangkumi tiga dataset utama daripada Jabatan Perangkaan Malaysia (DOSM):
-1. **Annual Live Births by State** (Kelahiran Hidup Tahunan)
-2. **Annual Marriages by State** (Perkahwinan Tahunan)
-3. **Household Income by State** (Pendapatan Isi Rumah)
+### 🌟 Selamat Datang ke Dashboard Analisis Saintifik Malaysia
+Dashboard interaktif ini dibangunkan khas untuk tugasan visualisasi saintifik menggunakan data terbuka daripada **Jabatan Perangkaan Malaysia (OpenDOSM)**. 
 
-Sila gunakan menu navigasi di sebelah kiri (di bawah folder **Pages**) untuk meneroka ketiga-tiga objektif analitikal berikut:
-* **Halaman 1:** Household Income + Annual Live Births
-* **Halaman 2:** Annual Marriages + Annual Live Births
-* **Halaman 3:** Household Income + Annual Marriages
+Pilih halaman di menu sebelah kiri (**Sidebar**) untuk meneroka analisis berikut:
+* **Page 1 (Income + Births):** Analisis pendapatan isi rumah berbanding kelahiran hidup tahunan.
+* **Page 2 (Marriages + Births):** Penilaian korelasi perkahwinan tahunan dengan kelahiran hidup.
+* **Page 3 (Income + Marriages):** Kajian jurang pendapatan serantau terhadap kadar perkahwinan.
 """)
 
-st.info("👈 Sila pilih halaman di menu sisi kiri (sidebar) untuk melihat visualisasi bagi setiap objektif.")
+st.info("👈 Sila gunakan menu navigasi di sebelah kiri untuk beralih antara halaman analisis.")
