@@ -309,7 +309,8 @@ def chart_style(title, x_label, y_label):
 
 def show_chart(p):
 
-    st.bokeh_chart(
+    def show_chart(p):
+    streamlit_bokeh(
         p,
         use_container_width=True
     )
