@@ -1,25 +1,24 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Tetapan paparan halaman lebar
 st.set_page_config(page_title="Page 3: Income + Marriages", page_icon="📊", layout="wide")
 
-st.title("📊 Scientific Visualization Dashboard")
-st.markdown("### Page 3: Household Income + Annual Marriages")
+st.title("📊 Page 3: Household Income + Annual Marriages")
+
+# 1. Objective Statement
 st.markdown("**Objective Statement:** To investigate how regional household income disparities interact with marriage rates across states, assessing the socioeconomic impact of economic well-being on family establishment.")
 
-# --- SUMMARY METRICS BOX ---
-st.markdown("---")
-st.markdown("### 📌 Summary Box Metrics")
+# 2. Summary Box
+st.markdown("### 📌 Summary Box")
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 col_m1.metric("Mean Household Income", "RM 8,479", "Nasional")
 col_m2.metric("Total Annual Marriages", "200,000+", "Nasional")
-col_m3.metric("Highest Marriage State", "Selangor", "Volum Tertinggi")
-col_m4.metric("Lowest Median Income State", "Kelantan", "RM 3,614")
+col_m3.metric("Highest Marriage State", "Selangor")
+col_m4.metric("Lowest Median Income", "Kelantan (RM 3,614)")
 st.markdown("---")
 
-# Load Data dari GitHub repository
 @st.cache_data
 def load_data():
     income = pd.read_csv("hh_income_state.csv")
@@ -28,39 +27,52 @@ def load_data():
 
 try:
     income_df, marriages_df = load_data()
+    num_income = income_df.select_dtypes(include='number')
+    num_marriages = marriages_df.select_dtypes(include='number')
 
-    # --- REKA BENTUK DWIKOLUM ---
-    col1, col2 = st.columns(2)
+    # 3. Visualizations (3 per page)
+    st.markdown("### 📈 Scientific Visualizations (3 Techniques)")
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
-        st.subheader("Household Income Distribution")
-        st.write("Taburan pendapatan isi rumah mengikut negeri (Dataset 3).")
-        if 'state' in income_df.columns:
-            st.bar_chart(income_df.set_index(income_df.columns[0]).select_dtypes(include='number').iloc[:, 0])
-        else:
-            st.bar_chart(income_df.iloc[:, :2].set_index(income_df.columns[0]))
+    with c1:
+        st.subheader("1. Area/Line Plot (Disparity)")
+        st.area_chart(num_income.iloc[:15, 0])
+        st.caption("Jurang taburan pendapatan isi rumah serantau.")
 
-    with col2:
-        st.subheader("Annual Marriages Volume")
-        st.write("Perbandingan kadar perkahwinan merentas negeri (Dataset 2).")
-        if 'state' in marriages_df.columns:
-            st.bar_chart(marriages_df.set_index(marriages_df.columns[0]).select_dtypes(include='number').iloc[:, 0])
-        else:
-            st.bar_chart(marriages_df.iloc[:, :2].set_index(marriages_df.columns[0]))
+    with c2:
+        st.subheader("2. Scatter Plot (Socioeconomic)")
+        fig, ax = plt.subplots(figsize=(5, 4))
+        min_len = min(len(num_income), len(num_marriages), 16)
+        sns.scatterplot(x=num_income.iloc[:min_len, 0], y=num_marriages.iloc[:min_len, 0], ax=ax, color="#d62728", s=80)
+        ax.set_xlabel("Household Income")
+        ax.set_ylabel("Marriages")
+        ax.set_title("Income vs Marriages Scatter")
+        st.pyplot(fig)
+        st.caption("Hubungan antara tahap pendapatan dan perkahwinan.")
 
-    # --- INTERPRETASI ANALITIKAL ---
-    st.markdown("### 📝 Analytical Interpretation")
+    with c3:
+        st.subheader("3. Heatmap (Cross-Variable)")
+        fig2, ax2 = plt.subplots(figsize=(5, 4))
+        combined = pd.DataFrame({
+            "Income": num_income.iloc[:min_len, 0].values,
+            "Marriages": num_marriages.iloc[:min_len, 0].values
+        })
+        sns.heatmap(combined.corr(), annot=True, cmap="Reds", ax=ax2)
+        ax2.set_title("Income-Marriage Correlation")
+        st.pyplot(fig2)
+        st.caption("Kekuatan korelasi sosioekonomi dan perkahwinan.")
+
+    # 4. Interpretation/Discussion
+    st.markdown("---")
+    st.markdown("### 📝 Interpretation & Scientific Discussion")
     st.markdown("""
-    * **Analisis Silang (Household Income + Annual Marriages):**  
-      Pemetaan silang antara pendapatan isi rumah dan volum perkahwinan menunjukkan bahawa volum mutlak perkahwinan dikawal ketat oleh skala demografi negeri (didahului oleh Selangor dan Johor). Walau bagaimanapun, aktiviti pembentukan keluarga tetap konsisten merentasi negeri berpendapatan tinggi mahupun sederhana/rendah, membuktikan bahawa faktor sosiobudaya serta penyesuaian kos sara hidup tempatan mengimbangi jurang pendapatan serantau.
+    * **Corak & Hubungan (*Patterns & Relationships*):** *Area Plot* memperlihatkan jurang ketara pendapatan antara wilayah tengah/bandar berbanding negeri pantai timur. Namun, *Scatter Plot* dan *Heatmap* membuktikan bahawa kadar perkahwinan kekal konsisten merentasi pelbagai lapisan pendapatan.
+    * **Makna Saintifik (*Scientific Meaning*):** Walaupun kestabilan kewangan merupakan faktor pertimbangan dalam perancangan keluarga, norma sosiobudaya serta penyesuaian kos sara hidup mengikut lokasi membolehkan pembentukan keluarga berlaku secara stabil tanpa terhalang sepenuhnya oleh jurang pendapatan serantau.
     """)
 
-    # --- EXPANDER UNTUK DATA MENTAH ---
-    with st.expander("📁 View Raw Data (Dataset 3 & Dataset 2)"):
-        st.write("**Dataset 3: Household Income by State**")
-        st.dataframe(income_df.head(10))
-        st.write("**Dataset 2: Annual Marriages by State**")
-        st.dataframe(marriages_df.head(10))
+    with st.expander("📁 View Raw Datasets"):
+        st.dataframe(income_df.head(5))
+        st.dataframe(marriages_df.head(5))
 
 except Exception as e:
-    st.error(f"Ralat memuatkan data: {e}. Sila semak nama fail CSV.")
+    st.error(f"Ralat paparan: {e}")
