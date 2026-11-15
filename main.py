@@ -14,14 +14,47 @@ st.set_page_config(
 )
 
 st.title("Malaysian Demographic and Socioeconomic Dashboard")
-st.caption("Data source: Department of Statistics Malaysia (DOSM)")
+st.caption("Data Source: Department of Statistics Malaysia (DOSM)")
 
 BASE_DIR = Path(__file__).parent
 
-# Original dataset filenames
 BIRTH_FILE = BASE_DIR / "birth_state (1).csv"
 MARRIAGE_FILE = BASE_DIR / "marriages_state.csv"
 INCOME_FILE = BASE_DIR / "hh_income_state.csv"
+
+
+# ==========================================
+# DISTINCT CATEGORY COLOURS
+# ==========================================
+COLOR_PALETTE = [
+    "#E6194B",  # Red
+    "#4363D8",  # Blue
+    "#FFE119",  # Yellow
+    "#3CB44B",  # Green
+    "#F58231",  # Orange
+    "#911EB4",  # Purple
+    "#42D4F4",  # Cyan
+    "#F032E6",  # Magenta
+    "#BFEF45",  # Lime
+    "#FABED4",  # Pink
+    "#469990",  # Teal
+    "#9A6324",  # Brown
+    "#800000",  # Maroon
+    "#000075",  # Navy
+    "#A9A9A9"   # Grey
+]
+
+INDICATOR_COLORS = {
+    "Live Births": "#E6194B",
+    "Marriages (Male/Female Average)": "#4363D8"
+}
+
+HEATMAP_COLORS = [
+    [0.0, "#E6194B"],
+    [0.33, "#FFE119"],
+    [0.66, "#3CB44B"],
+    [1.0, "#4363D8"]
+]
 
 
 # ==========================================
@@ -57,7 +90,7 @@ def load_data():
     marriages = prepare_year(marriages)
     income = prepare_year(income)
 
-    # Convert numerical columns
+    # Convert numeric columns
     for df, columns in [
         (births, ["abs", "rate"]),
         (marriages, ["abs", "rate"]),
@@ -69,7 +102,7 @@ def load_data():
                     df[col], errors="coerce"
                 )
 
-    # Birth aggregation
+    # Birth data aggregation
     births = births.groupby(
         ["state", "year"], as_index=False
     ).agg(
@@ -77,7 +110,7 @@ def load_data():
         births_rate=("rate", "mean")
     )
 
-    # Marriage aggregation: average male and female
+    # Marriage data aggregation: average
     marriages = marriages.groupby(
         ["state", "year"], as_index=False
     ).agg(
@@ -121,6 +154,17 @@ except Exception as e:
 
 
 # ==========================================
+# CREATE CONSISTENT STATE COLOUR MAPPING
+# ==========================================
+all_states = sorted(data["state"].dropna().unique())
+
+STATE_COLORS = {
+    state: COLOR_PALETTE[i % len(COLOR_PALETTE)]
+    for i, state in enumerate(all_states)
+}
+
+
+# ==========================================
 # SIDEBAR NAVIGATION
 # ==========================================
 st.sidebar.title("Dashboard Menu")
@@ -142,15 +186,12 @@ page = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.subheader("Data Filters")
 
-states = sorted(data["state"].dropna().unique())
-
 selected_states = st.sidebar.multiselect(
     "Select State",
-    states,
-    default=states
+    all_states,
+    default=all_states
 )
 
-# Year filter: 2017 to 2024 only
 st.sidebar.subheader("Year Filter")
 
 year_range = st.sidebar.slider(
@@ -213,14 +254,14 @@ def show_heatmap(df, columns, title):
 
     corr = df[columns].dropna().corr()
 
-    if corr.empty:
+    if corr.empty or corr.isna().all().all():
         st.info("Not enough data to calculate correlation.")
         return
 
     fig = px.imshow(
         corr,
         text_auto=".2f",
-        color_continuous_scale="RdBu_r",
+        color_continuous_scale=HEATMAP_COLORS,
         zmin=-1,
         zmax=1,
         title=title
@@ -243,12 +284,6 @@ if page == "Home":
     This dashboard explores the relationship between demographic
     and socioeconomic indicators across Malaysian states using
     data from the Department of Statistics Malaysia (DOSM).
-
-    Three datasets are used:
-
-    - Annual Live Births by State
-    - Annual Marriages by State
-    - Household Income by State
     """)
 
     st.subheader("Research Objectives")
@@ -297,20 +332,9 @@ if page == "Home":
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric(
-        "Total States",
-        data["state"].nunique()
-    )
-
-    col2.metric(
-        "Selected Start Year",
-        year_range[0]
-    )
-
-    col3.metric(
-        "Selected End Year",
-        year_range[1]
-    )
+    col1.metric("Total States", data["state"].nunique())
+    col2.metric("Selected Start Year", year_range[0])
+    col3.metric("Selected End Year", year_range[1])
 
 
 # ==========================================
@@ -318,9 +342,7 @@ if page == "Home":
 # ==========================================
 elif page == "Objective 1":
 
-    st.header(
-        "Objective 1: Economic Prosperity vs. Demographic Growth"
-    )
+    st.header("Objective 1: Economic Prosperity vs. Demographic Growth")
 
     st.write("""
     **Objective:** To examine the relationship between household
@@ -335,10 +357,8 @@ elif page == "Objective 1":
 
     st.markdown("---")
 
-    # Visualization 1
-    st.subheader(
-        "Visualization 1: Household Income vs. Live Births"
-    )
+    # Visualization 1: Scatter Plot
+    st.subheader("Visualization 1: Household Income vs. Live Births")
 
     df = filtered.dropna(
         subset=["income_median", "births_abs"]
@@ -353,6 +373,7 @@ elif page == "Objective 1":
             color="state",
             size="births_abs",
             hover_data=["year"],
+            color_discrete_map=STATE_COLORS,
             title="Median Household Income vs. Live Births",
             labels={
                 "income_median": "Median Household Income (RM)",
@@ -361,24 +382,17 @@ elif page == "Objective 1":
             }
         )
 
-        st.plotly_chart(
-            fig1,
-            use_container_width=True
-        )
+        st.plotly_chart(fig1, use_container_width=True)
 
     else:
         st.info("Insufficient data for scatter plot.")
 
-    # Visualization 2
-    st.subheader(
-        "Visualization 2: Total Live Births by State"
-    )
+    # Visualization 2: Bar Chart
+    st.subheader("Visualization 2: Total Live Births by State")
 
     birth_state = filtered.groupby(
         "state", as_index=False
-    )["births_abs"].sum()
-
-    birth_state = birth_state.dropna()
+    )["births_abs"].sum().dropna()
 
     if not birth_state.empty:
 
@@ -386,7 +400,8 @@ elif page == "Objective 1":
             birth_state,
             x="state",
             y="births_abs",
-            color="births_abs",
+            color="state",
+            color_discrete_map=STATE_COLORS,
             title="Total Live Births by State",
             labels={
                 "state": "State",
@@ -394,18 +409,13 @@ elif page == "Objective 1":
             }
         )
 
-        st.plotly_chart(
-            fig2,
-            use_container_width=True
-        )
+        st.plotly_chart(fig2, use_container_width=True)
 
     else:
         st.info("Insufficient data for bar chart.")
 
-    # Visualization 3
-    st.subheader(
-        "Visualization 3: Correlation Heatmap"
-    )
+    # Visualization 3: Heatmap
+    st.subheader("Visualization 3: Correlation Heatmap")
 
     show_heatmap(
         filtered,
@@ -437,9 +447,7 @@ elif page == "Objective 1":
 # ==========================================
 elif page == "Objective 2":
 
-    st.header(
-        "Objective 2: Family Formation and Population Dynamics"
-    )
+    st.header("Objective 2: Family Formation and Population Dynamics")
 
     st.write("""
     **Objective:** To analyze the relationship between marriage
@@ -454,7 +462,6 @@ elif page == "Objective 2":
 
     st.markdown("---")
 
-    # Prepare yearly data
     yearly = filtered.groupby(
         "year", as_index=False
     ).agg(
@@ -475,10 +482,8 @@ elif page == "Objective 2":
         "marriages": "Marriages (Male/Female Average)"
     })
 
-    # Visualization 1
-    st.subheader(
-        "Visualization 1: Marriage and Birth Trends"
-    )
+    # Visualization 1: Line Chart
+    st.subheader("Visualization 1: Marriage and Birth Trends")
 
     if not yearly_long.empty:
 
@@ -488,6 +493,7 @@ elif page == "Objective 2":
             y="Value",
             color="Indicator",
             markers=True,
+            color_discrete_map=INDICATOR_COLORS,
             title="Marriage and Live Birth Trends Over Time",
             labels={
                 "year": "Year",
@@ -495,18 +501,13 @@ elif page == "Objective 2":
             }
         )
 
-        st.plotly_chart(
-            fig1,
-            use_container_width=True
-        )
+        st.plotly_chart(fig1, use_container_width=True)
 
     else:
         st.info("Insufficient data for line chart.")
 
-    # Visualization 2
-    st.subheader(
-        "Visualization 2: Correlation Heatmap"
-    )
+    # Visualization 2: Heatmap
+    st.subheader("Visualization 2: Correlation Heatmap")
 
     show_heatmap(
         filtered,
@@ -519,10 +520,8 @@ elif page == "Objective 2":
         "Correlation Between Marriage and Birth Indicators"
     )
 
-    # Visualization 3
-    st.subheader(
-        "Visualization 3: Yearly Comparison"
-    )
+    # Visualization 3: Grouped Bar Chart
+    st.subheader("Visualization 3: Yearly Comparison")
 
     if not yearly_long.empty:
 
@@ -532,6 +531,7 @@ elif page == "Objective 2":
             y="Value",
             color="Indicator",
             barmode="group",
+            color_discrete_map=INDICATOR_COLORS,
             title="Marriage and Live Birth Comparison by Year",
             labels={
                 "year": "Year",
@@ -539,10 +539,7 @@ elif page == "Objective 2":
             }
         )
 
-        st.plotly_chart(
-            fig3,
-            use_container_width=True
-        )
+        st.plotly_chart(fig3, use_container_width=True)
 
     else:
         st.info("Insufficient data for grouped bar chart.")
@@ -566,9 +563,7 @@ elif page == "Objective 2":
 # ==========================================
 elif page == "Objective 3":
 
-    st.header(
-        "Objective 3: Socioeconomic Influence on Marriages"
-    )
+    st.header("Objective 3: Socioeconomic Influence on Marriages")
 
     st.write("""
     **Objective:** To investigate the relationship between
@@ -584,10 +579,8 @@ elif page == "Objective 3":
 
     st.markdown("---")
 
-    # Visualization 1
-    st.subheader(
-        "Visualization 1: Household Income vs. Marriage Patterns"
-    )
+    # Visualization 1: Bubble Chart
+    st.subheader("Visualization 1: Household Income vs. Marriage Patterns")
 
     df = filtered.dropna(
         subset=["income_mean", "marriage_abs"]
@@ -602,6 +595,7 @@ elif page == "Objective 3":
             size="marriage_abs",
             color="state",
             hover_data=["year"],
+            color_discrete_map=STATE_COLORS,
             title="Mean Household Income vs. Marriage Volume",
             labels={
                 "income_mean": "Mean Household Income (RM)",
@@ -610,18 +604,13 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(
-            fig1,
-            use_container_width=True
-        )
+        st.plotly_chart(fig1, use_container_width=True)
 
     else:
         st.info("Insufficient data for bubble chart.")
 
-    # Visualization 2
-    st.subheader(
-        "Visualization 2: Household Income Distribution"
-    )
+    # Visualization 2: Box Plot
+    st.subheader("Visualization 2: Household Income Distribution")
 
     box_data = filtered.dropna(
         subset=["income_mean"]
@@ -635,6 +624,7 @@ elif page == "Objective 3":
             y="income_mean",
             color="state",
             points="outliers",
+            color_discrete_map=STATE_COLORS,
             title="Household Income Distribution by State",
             labels={
                 "state": "State",
@@ -642,24 +632,17 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(
-            fig2,
-            use_container_width=True
-        )
+        st.plotly_chart(fig2, use_container_width=True)
 
     else:
         st.info("Insufficient data for box plot.")
 
-    # Visualization 3
-    st.subheader(
-        "Visualization 3: Marriage Rate by State"
-    )
+    # Visualization 3: Bar Chart
+    st.subheader("Visualization 3: Marriage Rate by State")
 
     marriage_state = filtered.groupby(
         "state", as_index=False
-    )["marriage_rate"].mean()
-
-    marriage_state = marriage_state.dropna()
+    )["marriage_rate"].mean().dropna()
 
     if not marriage_state.empty:
 
@@ -667,7 +650,8 @@ elif page == "Objective 3":
             marriage_state,
             x="state",
             y="marriage_rate",
-            color="marriage_rate",
+            color="state",
+            color_discrete_map=STATE_COLORS,
             title="Average Marriage Rate by State",
             labels={
                 "state": "State",
@@ -675,10 +659,7 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(
-            fig3,
-            use_container_width=True
-        )
+        st.plotly_chart(fig3, use_container_width=True)
 
     else:
         st.info("Insufficient data for marriage rate chart.")
@@ -706,6 +687,5 @@ st.caption(
     "Scientific Visualization Project | "
     "Department of Statistics Malaysia (DOSM) / OpenDOSM"
 )
-
 
 
