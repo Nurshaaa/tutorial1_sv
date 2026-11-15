@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 from pathlib import Path
 
@@ -13,9 +12,6 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Malaysian Demographic and Socioeconomic Dashboard")
-st.caption("Data Source: Department of Statistics Malaysia (DOSM)")
-
 BASE_DIR = Path(__file__).parent
 
 BIRTH_FILE = BASE_DIR / "birth_state (1).csv"
@@ -24,7 +20,7 @@ INCOME_FILE = BASE_DIR / "hh_income_state.csv"
 
 
 # ==========================================
-# DISTINCT CATEGORY COLOURS
+# COLOUR PALETTE
 # ==========================================
 COLOR_PALETTE = [
     "#E6194B",  # Red
@@ -58,7 +54,7 @@ HEATMAP_COLORS = [
 
 
 # ==========================================
-# LOAD AND PREPARE DATA
+# LOAD DATA
 # ==========================================
 @st.cache_data
 def load_data():
@@ -68,6 +64,7 @@ def load_data():
     income = pd.read_csv(INCOME_FILE)
 
     def prepare_year(df):
+
         df = df.copy()
 
         if "year" not in df.columns:
@@ -90,19 +87,19 @@ def load_data():
     marriages = prepare_year(marriages)
     income = prepare_year(income)
 
-    # Convert numeric columns
     for df, columns in [
         (births, ["abs", "rate"]),
         (marriages, ["abs", "rate"]),
         (income, ["income_mean", "income_median"])
     ]:
+
         for col in columns:
             if col in df.columns:
                 df[col] = pd.to_numeric(
                     df[col], errors="coerce"
                 )
 
-    # Birth data aggregation
+    # Birth aggregation
     births = births.groupby(
         ["state", "year"], as_index=False
     ).agg(
@@ -110,7 +107,7 @@ def load_data():
         births_rate=("rate", "mean")
     )
 
-    # Marriage data aggregation: average
+    # Marriage aggregation: Average
     marriages = marriages.groupby(
         ["state", "year"], as_index=False
     ).agg(
@@ -118,7 +115,7 @@ def load_data():
         marriage_rate=("rate", "mean")
     )
 
-    # Household income aggregation
+    # Income aggregation
     income = income.groupby(
         ["state", "year"], as_index=False
     ).agg(
@@ -126,7 +123,7 @@ def load_data():
         income_median=("income_median", "mean")
     )
 
-    # Merge datasets
+    # Merge all datasets
     data = births.merge(
         marriages,
         on=["state", "year"],
@@ -143,20 +140,21 @@ def load_data():
 
 
 try:
+
     data = load_data()
 
 except Exception as e:
-    st.error(f"Dataset loading error: {e}")
-    st.info(
-        "Please ensure all three CSV files are in the same folder as main.py."
-    )
+
+    st.error(f"Unable to load dataset: {e}")
     st.stop()
 
 
 # ==========================================
-# CREATE CONSISTENT STATE COLOUR MAPPING
+# STATE COLOUR MAPPING
 # ==========================================
-all_states = sorted(data["state"].dropna().unique())
+all_states = sorted(
+    data["state"].dropna().unique()
+)
 
 STATE_COLORS = {
     state: COLOR_PALETTE[i % len(COLOR_PALETTE)]
@@ -165,17 +163,28 @@ STATE_COLORS = {
 
 
 # ==========================================
-# SIDEBAR NAVIGATION
+# DASHBOARD HEADER
+# ==========================================
+st.title("Malaysian Demographic and Socioeconomic Dashboard")
+
+st.caption(
+    "Exploring the relationship between live births, "
+    "marriages and household income in Malaysia."
+)
+
+
+# ==========================================
+# SIDEBAR MENU
 # ==========================================
 st.sidebar.title("Dashboard Menu")
 
 page = st.sidebar.radio(
     "Select Page",
     [
-        "Home",
-        "Objective 1",
-        "Objective 2",
-        "Objective 3"
+        "Dashboard Overview",
+        "Income & Birth Analysis",
+        "Marriage & Birth Trends",
+        "Income & Marriage Analysis"
     ]
 )
 
@@ -192,8 +201,6 @@ selected_states = st.sidebar.multiselect(
     default=all_states
 )
 
-st.sidebar.subheader("Year Filter")
-
 year_range = st.sidebar.slider(
     "Select Year Range",
     min_value=2017,
@@ -202,7 +209,10 @@ year_range = st.sidebar.slider(
     step=1
 )
 
-# Apply filters
+if not selected_states:
+    st.warning("Please select at least one state.")
+    st.stop()
+
 filtered = data[
     (data["state"].isin(selected_states))
     & (data["year"].between(
@@ -211,10 +221,6 @@ filtered = data[
     ))
     & (data["year"].between(2017, 2024))
 ].copy()
-
-if not selected_states:
-    st.warning("Please select at least one state.")
-    st.stop()
 
 
 # ==========================================
@@ -227,7 +233,7 @@ def show_metrics(df):
     births = df["births_abs"].sum()
     income = df["income_mean"].mean()
     marriages = df["marriage_abs"].sum()
-    rate = df["births_rate"].mean()
+    birth_rate = df["births_rate"].mean()
 
     col1.metric(
         "Total Live Births",
@@ -246,7 +252,7 @@ def show_metrics(df):
 
     col4.metric(
         "Average Birth Rate",
-        f"{rate:,.2f}" if pd.notna(rate) else "N/A"
+        f"{birth_rate:,.2f}" if pd.notna(birth_rate) else "N/A"
     )
 
 
@@ -255,7 +261,9 @@ def show_heatmap(df, columns, title):
     corr = df[columns].dropna().corr()
 
     if corr.empty or corr.isna().all().all():
+
         st.info("Not enough data to calculate correlation.")
+
         return
 
     fig = px.imshow(
@@ -274,30 +282,30 @@ def show_heatmap(df, columns, title):
 
 
 # ==========================================
-# HOME PAGE
+# DASHBOARD OVERVIEW
 # ==========================================
-if page == "Home":
+if page == "Dashboard Overview":
 
-    st.header("Project Overview")
+    st.header("Dashboard Overview")
 
     st.write("""
-    This dashboard explores the relationship between demographic
-    and socioeconomic indicators across Malaysian states using
-    data from the Department of Statistics Malaysia (DOSM).
+    This dashboard presents an analysis of demographic and
+    socioeconomic data in Malaysia using three datasets from
+    the Department of Statistics Malaysia (DOSM).
     """)
 
     st.subheader("Research Objectives")
 
     st.markdown("""
-    **Objective 1: Economic Prosperity vs. Demographic Growth**
+    **1. Economic Prosperity vs. Demographic Growth**
 
     Examine the relationship between household income and live births.
 
-    **Objective 2: Family Formation and Population Dynamics**
+    **2. Family Formation and Population Dynamics**
 
     Analyze marriage patterns and live births over time.
 
-    **Objective 3: Socioeconomic Influence on Marriages**
+    **3. Socioeconomic Influence on Marriages**
 
     Investigate the relationship between household income and marriage patterns.
     """)
@@ -315,9 +323,9 @@ if page == "Home":
             "marriages_state.csv",
             "hh_income_state.csv"
         ],
-        "Main Indicators": [
-            "Number of births and birth rate",
-            "Number of marriages and marriage rate",
+        "Indicators": [
+            "Live births and birth rate",
+            "Marriage volume and marriage rate",
             "Mean and median household income"
         ]
     })
@@ -328,37 +336,53 @@ if page == "Home":
         hide_index=True
     )
 
-    st.subheader("Dataset Summary")
+    st.subheader("Data Summary")
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Total States", data["state"].nunique())
-    col2.metric("Selected Start Year", year_range[0])
-    col3.metric("Selected End Year", year_range[1])
+    col1.metric(
+        "Total States",
+        len(all_states)
+    )
+
+    col2.metric(
+        "Start Year",
+        year_range[0]
+    )
+
+    col3.metric(
+        "End Year",
+        year_range[1]
+    )
+
+    st.subheader("Key Indicators")
+
+    if not filtered.empty:
+        show_metrics(filtered)
 
 
 # ==========================================
-# OBJECTIVE 1
+# INCOME & BIRTH ANALYSIS
 # ==========================================
-elif page == "Objective 1":
+elif page == "Income & Birth Analysis":
 
-    st.header("Objective 1: Economic Prosperity vs. Demographic Growth")
+    st.header("Income & Birth Analysis")
 
     st.write("""
-    **Objective:** To examine the relationship between household
+    This section examines the relationship between household
     income and live births across Malaysian states.
     """)
 
     if filtered.empty:
-        st.warning("No data available for selected filters.")
+        st.warning("No data available.")
         st.stop()
 
     show_metrics(filtered)
 
     st.markdown("---")
 
-    # Visualization 1: Scatter Plot
-    st.subheader("Visualization 1: Household Income vs. Live Births")
+    # 1. Scatter Plot
+    st.subheader("1. Household Income vs. Live Births")
 
     df = filtered.dropna(
         subset=["income_median", "births_abs"]
@@ -366,7 +390,7 @@ elif page == "Objective 1":
 
     if not df.empty:
 
-        fig1 = px.scatter(
+        fig = px.scatter(
             df,
             x="income_median",
             y="births_abs",
@@ -382,13 +406,13 @@ elif page == "Objective 1":
             }
         )
 
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for scatter plot.")
 
-    # Visualization 2: Bar Chart
-    st.subheader("Visualization 2: Total Live Births by State")
+    # 2. Bar Chart
+    st.subheader("2. Total Live Births by State")
 
     birth_state = filtered.groupby(
         "state", as_index=False
@@ -396,7 +420,7 @@ elif page == "Objective 1":
 
     if not birth_state.empty:
 
-        fig2 = px.bar(
+        fig = px.bar(
             birth_state,
             x="state",
             y="births_abs",
@@ -409,13 +433,13 @@ elif page == "Objective 1":
             }
         )
 
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for bar chart.")
 
-    # Visualization 3: Heatmap
-    st.subheader("Visualization 3: Correlation Heatmap")
+    # 3. Heatmap
+    st.subheader("3. Correlation Heatmap")
 
     show_heatmap(
         filtered,
@@ -428,34 +452,31 @@ elif page == "Objective 1":
         "Correlation Between Income and Birth Indicators"
     )
 
-    st.subheader("Interpretation and Discussion")
+    st.subheader("Interpretation")
 
     st.write("""
-    The scatter plot compares household income with the number of
-    live births across Malaysian states. The bar chart identifies
-    states with higher and lower birth totals.
-
-    The correlation heatmap summarizes the relationship between
-    household income and birth indicators. These visualizations
-    help identify demographic and socioeconomic patterns.
+    The scatter plot identifies patterns between household income
+    and live births. The bar chart compares the total number of
+    live births across states. The correlation heatmap summarizes
+    relationships between income and birth indicators.
     Correlation does not necessarily imply causation.
     """)
 
 
 # ==========================================
-# OBJECTIVE 2
+# MARRIAGE & BIRTH TRENDS
 # ==========================================
-elif page == "Objective 2":
+elif page == "Marriage & Birth Trends":
 
-    st.header("Objective 2: Family Formation and Population Dynamics")
+    st.header("Marriage & Birth Trends")
 
     st.write("""
-    **Objective:** To analyze the relationship between marriage
-    patterns and live births across Malaysian states over time.
+    This section analyzes marriage patterns and live births
+    across Malaysian states over time.
     """)
 
     if filtered.empty:
-        st.warning("No data available for selected filters.")
+        st.warning("No data available.")
         st.stop()
 
     show_metrics(filtered)
@@ -482,12 +503,12 @@ elif page == "Objective 2":
         "marriages": "Marriages (Male/Female Average)"
     })
 
-    # Visualization 1: Line Chart
-    st.subheader("Visualization 1: Marriage and Birth Trends")
+    # 1. Line Chart
+    st.subheader("1. Marriage and Birth Trends")
 
     if not yearly_long.empty:
 
-        fig1 = px.line(
+        fig = px.line(
             yearly_long,
             x="year",
             y="Value",
@@ -501,13 +522,13 @@ elif page == "Objective 2":
             }
         )
 
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for line chart.")
 
-    # Visualization 2: Heatmap
-    st.subheader("Visualization 2: Correlation Heatmap")
+    # 2. Heatmap
+    st.subheader("2. Correlation Heatmap")
 
     show_heatmap(
         filtered,
@@ -520,12 +541,12 @@ elif page == "Objective 2":
         "Correlation Between Marriage and Birth Indicators"
     )
 
-    # Visualization 3: Grouped Bar Chart
-    st.subheader("Visualization 3: Yearly Comparison")
+    # 3. Grouped Bar Chart
+    st.subheader("3. Yearly Comparison")
 
     if not yearly_long.empty:
 
-        fig3 = px.bar(
+        fig = px.bar(
             yearly_long,
             x="year",
             y="Value",
@@ -539,48 +560,46 @@ elif page == "Objective 2":
             }
         )
 
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for grouped bar chart.")
 
-    st.subheader("Interpretation and Discussion")
+    st.subheader("Interpretation")
 
     st.write("""
-    The line chart displays changes in marriage and live birth
+    The line chart presents changes in marriage and live birth
     values over time. The heatmap summarizes correlations between
-    marriage and birth indicators.
+    marriage and birth indicators. The grouped bar chart compares
+    their yearly values.
 
-    The grouped bar chart compares their yearly values.
     Marriage values represent the average of male and female
-    records for each state and year. These visualizations help
-    identify patterns in family formation and population dynamics.
+    records for each state and year.
     """)
 
 
 # ==========================================
-# OBJECTIVE 3
+# INCOME & MARRIAGE ANALYSIS
 # ==========================================
-elif page == "Objective 3":
+elif page == "Income & Marriage Analysis":
 
-    st.header("Objective 3: Socioeconomic Influence on Marriages")
+    st.header("Income & Marriage Analysis")
 
     st.write("""
-    **Objective:** To investigate the relationship between
-    household income levels and marriage patterns across
-    Malaysian states.
+    This section investigates the relationship between household
+    income levels and marriage patterns across Malaysian states.
     """)
 
     if filtered.empty:
-        st.warning("No data available for selected filters.")
+        st.warning("No data available.")
         st.stop()
 
     show_metrics(filtered)
 
     st.markdown("---")
 
-    # Visualization 1: Bubble Chart
-    st.subheader("Visualization 1: Household Income vs. Marriage Patterns")
+    # 1. Bubble Chart
+    st.subheader("1. Household Income vs. Marriage Patterns")
 
     df = filtered.dropna(
         subset=["income_mean", "marriage_abs"]
@@ -588,7 +607,7 @@ elif page == "Objective 3":
 
     if not df.empty:
 
-        fig1 = px.scatter(
+        fig = px.scatter(
             df,
             x="income_mean",
             y="marriage_abs",
@@ -604,13 +623,13 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for bubble chart.")
 
-    # Visualization 2: Box Plot
-    st.subheader("Visualization 2: Household Income Distribution")
+    # 2. Box Plot
+    st.subheader("2. Household Income Distribution")
 
     box_data = filtered.dropna(
         subset=["income_mean"]
@@ -618,7 +637,7 @@ elif page == "Objective 3":
 
     if not box_data.empty:
 
-        fig2 = px.box(
+        fig = px.box(
             box_data,
             x="state",
             y="income_mean",
@@ -632,13 +651,13 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for box plot.")
 
-    # Visualization 3: Bar Chart
-    st.subheader("Visualization 3: Marriage Rate by State")
+    # 3. Marriage Rate Bar Chart
+    st.subheader("3. Marriage Rate by State")
 
     marriage_state = filtered.groupby(
         "state", as_index=False
@@ -646,7 +665,7 @@ elif page == "Objective 3":
 
     if not marriage_state.empty:
 
-        fig3 = px.bar(
+        fig = px.bar(
             marriage_state,
             x="state",
             y="marriage_rate",
@@ -659,27 +678,27 @@ elif page == "Objective 3":
             }
         )
 
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
 
     else:
         st.info("Insufficient data for marriage rate chart.")
 
-    st.subheader("Interpretation and Discussion")
+    st.subheader("Interpretation")
 
     st.write("""
     The bubble chart compares household income with marriage
-    volume across states. The box plot shows the distribution
-    of household income, while the bar chart compares average
-    marriage rates between states.
+    volume across states. The box plot shows household income
+    distribution, while the bar chart compares average marriage
+    rates between states.
 
     These visualizations help identify socioeconomic patterns
-    related to marriage across Malaysian states. They do not
-    establish a cause-and-effect relationship.
+    related to marriage. They do not establish a cause-and-effect
+    relationship.
     """)
 
 
 # ==========================================
-# FOOTER
+# FINAL FOOTER
 # ==========================================
 st.markdown("---")
 
